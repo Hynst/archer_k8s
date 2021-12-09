@@ -1,0 +1,34 @@
+!!python/object/apply:collections.OrderedDict
+- - - RawFastqOrig
+    - /mnt/shared/MedGen/sequencing_results/primary_data/211204_A42/raw_fastq
+  - - Run
+    - 211204_A42
+  - - Samples
+    - !!python/object/apply:collections.defaultdict
+      args:
+      - !!python/name:builtins.dict ''
+      dictitems:
+       'COU70':
+          fwd: /raw_fastq/211204_A42/COU70_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/COU70_R2.fastq.gz
+       'FIC49':
+          fwd: /raw_fastq/211204_A42/FIC49_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/FIC49_R2.fastq.gz
+       'GRI68':
+          fwd: /raw_fastq/211204_A42/GRI68_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/GRI68_R2.fastq.gz
+       'NOJ49':
+          fwd: /raw_fastq/211204_A42/NOJ49_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/NOJ49_R2.fastq.gz
+       'NOM78-B':
+          fwd: /raw_fastq/211204_A42/NOM78-B_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/NOM78-B_R2.fastq.gz
+       'NOM78-NK':
+          fwd: /raw_fastq/211204_A42/NOM78-NK_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/NOM78-NK_R2.fastq.gz
+       'NOM78-T':
+          fwd: /raw_fastq/211204_A42/NOM78-T_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/NOM78-T_R2.fastq.gz
+       'SPA55':
+          fwd: /raw_fastq/211204_A42/SPA55_R1.fastq.gz
+          rev: /raw_fastq/211204_A42/SPA55_R2.fastq.gz
