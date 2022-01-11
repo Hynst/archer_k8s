@@ -1,6 +1,7 @@
 name: vep
 channels:
   - bioconda
+  - conda-forge
   - defaults
 dependencies:
   - _libgcc_mutex=0.1=main
@@ -283,3 +284,4 @@ dependencies:
   - xz=5.2.5=h7b6447c_0
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.4.9=haebb681_0
+  - bcftools=1.8=h4da6232_3

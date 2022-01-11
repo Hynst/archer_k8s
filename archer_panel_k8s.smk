@@ -1,4 +1,7 @@
 ### Archer panel pipeline for kubernetes ###
+######
+######
+#
 
 import re
 import datetime
@@ -19,14 +22,14 @@ S3_BUCKET = "bibs"
 
 # conect to remote S3
 S3 = S3RemoteProvider(host="https://storage-elixir1.cerit-sc.cz", access_key_id=AWS_ID, secret_access_key=AWS_KEY)
-boto3.client('s3', aws_access_key_id=AWS_ID, aws_secret_access_key=AWS_KEY, region_name="US", endpoint_url="https://storage-elixir1.cerit-sc.cz")
+#boto3.client('s3', aws_access_key_id=AWS_ID, aws_secret_access_key=AWS_KEY, region_name="US", endpoint_url="https://storage-elixir1.cerit-sc.cz")
 
 #Global variables
 REF_SEQ = S3.remote(S3_BUCKET + "/references/GRCh37-p13/seq/GRCh37-p13.fa")
 REF_BWA = S3.remote(S3_BUCKET + "/references/GRCh37-p13/index/BWA/GRCh37-p13")
 
-TARGET_BED = S3.remote(S3_BUCKET + "src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.bed")
-TARGET_INTERVALS = S3.remote(S3_BUCKET + "src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.intervallist")
+TARGET_BED = S3.remote(S3_BUCKET + "/src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.bed")
+TARGET_INTERVALS = S3.remote(S3_BUCKET + "/src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.intervals")
 
 
 CUTADAPT = "cutadapt"
@@ -58,8 +61,8 @@ def flagstatlist_second(wildcards):
     run = config["Run"]
     samples = config["Samples"]
     for sample in samples:
-            statlist = statlist + S3.remote([S3_BUCKET + "/data/myelo/" + run + "/samples/" + sample + \
-                                   "/stats/second_bam_qc/" + sample + ".flagstat"])
+            statlist = statlist + S3.remote([S3_BUCKET + "/data/myelo/" + run + "/samples/" + sample \
+                       + "/stats/second_bam_qc/" + sample + ".flagstat"])
     return statlist
 
 def covlist(wildcards):
@@ -77,7 +80,7 @@ def vcfvep_list(wildcards):
         samples = config["Samples"]
         for sample in samples:
             vcfvep_list = vcfvep_list + S3.remote([S3_BUCKET + "/data/myelo/" + run + "/samples/" + sample + "/variants/mutect2/" + sample \
-            + ".mutect2.filt.norm.vep.vcf"])
+            + ".mutect2.filt.norm.vep.csv"])
         return vcfvep_list
 
 def FLT3_list(wildcards):
@@ -90,8 +93,8 @@ def FLT3_list(wildcards):
         return FLT3_list
 
 def getFasta(wildcards):
-    files = {'fwd': S3.remote("bibs" + config["Samples"][wildcards.sample].get('fwd'))}
-    files['rev'] = S3.remote("bibs" + config["Samples"][wildcards.sample].get('rev'))
+    files = {'fwd': S3.remote(S3_BUCKET + config["Samples"][wildcards.sample].get('fwd'))}
+    files['rev'] = S3.remote(S3_BUCKET + config["Samples"][wildcards.sample].get('rev'))
     return files
 
 def multiqc(wildcards):
@@ -104,21 +107,25 @@ rule all:
         S3.remote(S3_BUCKET + "/src/myelo_proliferation/run_" + str(datetime.datetime.now()).replace(" ","-"))
     input:
         vcfvep_list,
-        multiqc,
-        covlist
-        #FLT3_list
+        #multiqc,
+        covlist,
+        FLT3_list,
+        S3.remote(S3_BUCKET + "/data/myelo/" + config["Run"] + "/" + config["Run"] + ".merged_variant.table_NEW.tsv")
     shell:
         """
         echo {input}
         touch {output}
         """
 
-# rule merge_tables:
-#     input:
-#         S3.remote("{S3_BUCKET}/data/{run}/multiqc_reports/multiqc.second")
-#     output:
-#         S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{run}.merged_variant.table_NEW.tsv")
-#     run:
+rule merge_tables:
+     input:
+         csv = S3.remote(expand("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vep.csv", S3_BUCKET = "bibs", run = config["Run"], sample = config["Samples"])),
+         mrg = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/scripts/merge_tables.R")
+     output:
+         S3.remote("{S3_BUCKET}/data/myelo/{run}/{run}.merged_variant.table_NEW.tsv")
+     conda: "./envs/erko.yml"
+     shell:
+         "Rscript --vanilla {input.mrg} {wildcards.run} {S3_BUCKET}/data/myelo/"
 #         command = "Rscript --vanilla ./merge_tables.R " + config['Run']
 #         shell(command)
 
@@ -157,9 +164,17 @@ rule FLT3_analysis:
         S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/flt3/{sample}.second_FLT3_ITD_summary.txt")
     input:
         bam = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam"),
-        flt = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/FLT3_ITD/FLT3_ITD_ext/FLT3_ITD_ext.pl")
+        bai = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam.bai"),
+        flt = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/FLT3_ITD/tmp/FLT3.tar.gz"),
+        jar = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/picard.jar"),
+        fgb = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/fgbio-0.8.1.jar")
+    conda: "./envs/perl.yml"
     shell:
-        "{input.flt} --bam {input.bam} --output {output} --ngstype amplicon --genome hg19"
+        """
+        tar -C {S3_BUCKET}/src/myelo_proliferation/archer/FLT3_ITD/tmp/ -xf {input.flt}
+        ls -al bibs/src/myelo_proliferation/archer/FLT3_ITD/tmp/FLT3_ITD_ext/
+        perl {S3_BUCKET}/src/myelo_proliferation/archer/FLT3_ITD/tmp/FLT3_ITD_ext/FLT3_ITD_ext.pl --bam {input.bam} --output {S3_BUCKET}/data/myelo/{wildcards.run}/samples/{wildcards.sample}/variants/flt3/ --ngstype amplicon --genome hg19
+        """
         # id = wildcards.sample
         # run = wildcards.run
         # out_fold = "../data/" + run + "/samples/" + id + "/variants/flt3/"
@@ -169,21 +184,29 @@ rule FLT3_analysis:
         # shell(command)
         # #shell(command2)
 
+rule vcf2csv:
+    output:
+        csv = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vep.csv")
+    input:
+        vcf = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vep.vcf"),
+        v2t = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/reGenotype/vcf2table_MDS.py")
+    conda: "./envs/vcf2csv.yml"
+    shell:
+        "{BCFTOOLS} view -f 'PASS,clustered_events,multiallelic' {input.vcf} | python {input.v2t} simple --build GRCh37 -i /dev/stdin -o {output.csv}"
+
+
 rule annotate_mutect_cons:
     output:
-        vcf = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vep.vcf"),
-        csv = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vep.csv")
+        vcf = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vep.vcf")
     input:
         vcf = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.norm.vcf"),
         ref = S3.remote("{S3_BUCKET}/references/GRCh37-p13/seq/GRCh37-p13.fa"),
-        vep_data = S3.remote("{S3_BUCKET}/references/GRCh37-p13/test/VEP.tar.gz"),
-        v2t = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/reGenotype/vcf2table_MDS.py")
+        vep_data = S3.remote("{S3_BUCKET}/references/GRCh37-p13/test/VEP_95.tar.gz"),
     conda: "./envs/vep.yml"
     shell:
         """
         tar -C {S3_BUCKET}/references/GRCh37-p13/test/ -xf {input.vep_data}
-        {VEP} -i {input.vcf} --cache --cache_version 95 --dir_cache {S3_BUCKET}/references/GRCh37-p13/test/VEP -fasta {input.ref} --merged --offline --vcf --everything -o {output.vcf}
-        {BCFTOOLS} view -f 'PASS,clustered_events,multiallelic' {output.vcf} | python {input.v2t} simple --build GRCh37 -i /dev/stdin -o {output.csv}
+        {VEP} -i {input.vcf} --cache --cache_version 95 --dir_cache {S3_BUCKET}/references/GRCh37-p13/test/VEP_95 -fasta {input.ref} --merged --offline --vcf --everything -o {output.vcf}
         """
         # id = wildcards.sample
         # command1 = "{VEP} -i {input}" \
@@ -220,9 +243,9 @@ rule filter_mutect:
          S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.filt.vcf")
      input:
          vcf = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.cons.vcf"),
-         gtk = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/GATK/gatk")
+     conda: "./envs/gatk4.yml"
      shell:
-         "{input.gatk} FilterMutectCalls -V {input.vcf} -O {output}"
+         "gatk FilterMutectCalls -V {input.vcf} -O {output}"
         #  command = GATK2 + " FilterMutectCalls" \
         #      + " -V {input}" \
         #      + " -O {output}"
@@ -232,12 +255,15 @@ rule mutect2_cons:
     output:
         S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/variants/mutect2/{sample}.mutect2.cons.vcf")
     input:
-        bam = S3.remote("{S3_BUCKET}/data/myelo{run}/samples/{sample}/bam/{sample}.second.bam"),
-        gtk = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/GATK/gatk"),
+        bam = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam"),
         ref = S3.remote("{S3_BUCKET}/references/GRCh37-p13/seq/GRCh37-p13.fa"),
-        ivl = S3.remote("{S3_BUCKET}src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.intervallist")
+        fai = S3.remote("{S3_BUCKET}/references/GRCh37-p13/seq/GRCh37-p13.fa.fai"),
+        dct = S3.remote("{S3_BUCKET}/references/GRCh37-p13/seq/GRCh37-p13.dict"),
+        ivl = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.intervals"),
+        bai = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam.bai")
+    conda: "./envs/gatk4.yml"
     shell:
-        "{input.gtk} Mutect2 --reference {input.ref} --input {input.bam} --tumor-sample {wildcards.sample} --annotation StrandArtifact --min-base-quality-score 30 --intervals {input.ivl} --output {output}"
+        "gatk Mutect2 --reference {input.ref} --input {input.bam} --tumor-sample {wildcards.sample} --annotation StrandArtifact --min-base-quality-score 30 --intervals {input.ivl} --output {output}"
         # id = wildcards.sample
         # command = GATK2 + " Mutect2 --reference {REF_SEQ}" \
         #     + " --input {input}" \
@@ -248,16 +274,16 @@ rule mutect2_cons:
         # shell(command)
 
 ## QC
-rule multiqc:
-    output:
-        report_second = S3.remote("{S3_BUCKET}/data/myelo/{run}/multiqc_reports/multiqc.second")
-    input:
-        flagstatlist_second
-    conda: "./envs/multiqc.yml"
-    shell:
-        "{MULTIQC} {S3_BUCKET}/data/myelo/{wildcards.run}/samples/*/stats/second_bam_qc -o {output.report_second}"
-        #command_second = "multiqc ../data/" + wildcards.run + "/samples/*/stats/second_bam_qc -o {output.report_second}"
-        #shell(command_second)
+# rule multiqc:
+#     output:
+#         report_second = S3.remote("{S3_BUCKET}/data/myelo/{run}/multiqc_reports/multiqc.second")
+#     input:
+#         flagstatlist_second
+#     conda: "./envs/multiqc.yml"
+#     shell:
+#         "{MULTIQC} {S3_BUCKET}/data/myelo/{wildcards.run}/samples/*/stats/second_bam_qc -o {output.report_second}"
+#         #command_second = "multiqc ../data/" + wildcards.run + "/samples/*/stats/second_bam_qc -o {output.report_second}"
+#         #shell(command_second)
 
 rule sedond_bam_QC:
     output:
@@ -268,7 +294,7 @@ rule sedond_bam_QC:
     input:
         bam = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam"),
         jar = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/picard.jar"),
-        ivl = S3.remote("{S3_BUCKET}src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.intervallist"),
+        ivl = S3.remote("{S3_BUCKET}/src/myelo_proliferation/archer/beds/jana_archer_unique_plus2nt.intervallist"),
         ref = S3.remote("{S3_BUCKET}/references/GRCh37-p13/seq/GRCh37-p13.fa")
     conda: "./envs/samtools.yml"
     shell:
@@ -298,10 +324,11 @@ rule dedup:
         bam = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam"),
         bai = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.second.bam.bai")
     input:
-        S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.first.bam")
+        bam = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.first.bam"),
+        bai = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.first.bam.bai")
     conda: "./envs/umi_tools.yml"
     log:
-        stats = S3.remote("{S3_BUCKET}/{run}/samples/{sample}/bam/{sample}.dedup")
+        stats = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.dedup")
     shell:
            """
            {UMI_TOOLS} dedup -I {input} --paired --output-stats={log.stats} -S {output}
@@ -316,7 +343,8 @@ rule dedup:
 
 rule first_align_bam:
     output:
-        S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.first.bam")
+        bam = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.first.bam"),
+        bai = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.first.bam.bai")
     input:
         fwd = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/fastq_trimmed/{sample}.trimmed.UMI.R1.fastq"),
         rev = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/fastq_trimmed/{sample}.trimmed.UMI.R2.fastq"),
@@ -324,7 +352,11 @@ rule first_align_bam:
     conda: "./envs/bwa.yml"
     log:
         run = S3.remote("{S3_BUCKET}/data/myelo/{run}/samples/{sample}/bam/{sample}.log")
-    shell: "{BWA} mem -t 20 -R '@RG\\tID:{wildcards.sample}\\tSM:{wildcards.sample}\\tPL:illumina' -v 1 {input.ref_bwa} {input.fwd} {input.rev} 2>> {log.run} | {SAMTOOLS} view -Sb - | {SAMBAMBA} sort -o {output} /dev/stdin 2>> {log.run}"
+    shell:
+           """
+           {BWA} mem -t 20 -R '@RG\\tID:{wildcards.sample}\\tSM:{wildcards.sample}\\tPL:illumina' -v 1 {input.ref_bwa[0]} {input.fwd} {input.rev} 2>> {log.run} | {SAMTOOLS} view -Sb - | {SAMBAMBA} sort -o {output.bam} /dev/stdin 2>> {log.run}
+           {SAMTOOLS} index {output.bam}
+           """
 #    run:
 #        id = wildcards.sample
 #        sm = wildcards.sample
